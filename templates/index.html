@@ -1,0 +1,61 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload DXF File</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Upload Your DXF File</h1>
+        <div class="upload-area" id="uploadArea">
+            <p>Drag & Drop your DXF file here or</p>
+            <input type="file" id="fileInput" accept=".dxf" hidden>
+            <button id="uploadButton">Choose File</button>
+        </div>
+        <div id="preview" class="preview-area"></div>
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html> -->
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload DXF File</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Upload Your DXF File</h1>
+        <div class="upload-area" id="uploadArea">
+            <p>Drag & Drop your DXF file here or</p>
+            <input type="file" id="fileInput" accept=".dxf" hidden>
+            <button id="uploadButton">Choose File</button>
+        </div>
+        <div id="preview" class="preview-area"></div>
+        
+        <!-- Button to open the history drawer -->
+        <button id="openDrawer">View History</button>
+        <button id="downloadButton">Download SVG</button>
+    </div>
+    
+    <!-- History Drawer -->
+    <div id="historyDrawer" class="drawer">
+        <div class="drawer-content">
+            <h2>Conversion History</h2>
+            <ul id="historyList"></ul>
+            <button id="closeDrawer">Close</button>
+        </div>
+    </div>
+    
+     
+    
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
