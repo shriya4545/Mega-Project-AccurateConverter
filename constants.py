@@ -24,6 +24,9 @@ client = MongoClient(MONGO_URL)
 db = client["file_conversion"]
 collection = db["converted_files"]
 svg = ET.Element('svg', xmlns="http://www.w3.org/2000/svg", version="1.1")
+def fmt(val):
+    return f"{val:.2f}"
+
 # Initialize parsed data structure
 parsed_data = {
     "lines": [],
@@ -212,6 +215,21 @@ def calculate_circle_from_3points(p1, p2, p3):
         "start_angle": start_angle,
         "end_angle": end_angle
     }
+def offset_coordinates(parsed_data, offset_x, offset_y):
+    for entity_type in parsed_data:
+        for entity in parsed_data[entity_type]:
+            if 'start' in entity:
+                entity['start']['x'] -= offset_x
+                entity['start']['y'] -= offset_y
+            if 'end' in entity:
+                entity['end']['x'] -= offset_x
+                entity['end']['y'] -= offset_y
+            if 'center' in entity:
+                entity['center']['x'] -= offset_x
+                entity['center']['y'] -= offset_y
+            if 'position' in entity:
+                entity['position']['x'] -= offset_x
+                entity['position']['y'] -= offset_y
 
 def parse_dxf(filename, scaling_factor=1.0):
     global parsed_data
@@ -266,6 +284,7 @@ def parse_dxf(filename, scaling_factor=1.0):
     try:
         min_x, max_x = min(all_x_coords), max(all_x_coords)
         min_y, max_y = min(all_y_coords), max(all_y_coords)
+        offset_coordinates(parsed_data, min_x, min_y)
     except ValueError as e:
         logging.error(f"Error calculating bounding box: {e}")
         raise ValueError(f"Error calculating the bounding box. Problem: {e}")
@@ -284,10 +303,36 @@ def parse_dxf(filename, scaling_factor=1.0):
                 entity['center']['y'] *= scaling_factor
             if 'radius' in entity:
                 entity['radius'] *= scaling_factor
+    def round_coordinates(data):
+        for key in data:
+            if isinstance(data[key], list):
+                for item in data[key]:
+                    for coord_key in ['start', 'end', 'center', 'position']:
+                        if coord_key in item:
+                            for axis in ['x', 'y']:
+                                if axis in item[coord_key]:
+                                    item[coord_key][axis] = round(item[coord_key][axis], 2)
+                    # Also round radius if present
+                    if 'radius' in item:
+                        item['radius'] = round(item['radius'], 2)
+                    # Round thickness if present
+                    if 'thickness' in item:
+                        item['thickness'] = round(item['thickness'], 2)
+                    # Round rotation if present
+                    if 'rotation' in item:
+                        item['rotation'] = round(item['rotation'], 2)
+                    # Round height if present
+                    if 'height' in item:
+                        item['height'] = round(item['height'], 2)
 
-    # Save parsed data to JSON file
+    # Round coordinates before saving
+    round_coordinates(parsed_data)
+
+     # Save parsed data to JSON file
     with open('parsed_data.json', 'w') as json_file:
-        json.dump(parsed_data, json_file)
+         json.dump(parsed_data, json_file)
+    # Save parsed data to JSON file
+    
 
     logging.debug(f"Parsed data: {parsed_data}")
     return min_x, max_x, min_y, max_y
@@ -304,8 +349,9 @@ for section in ['lines', 'arcs', 'circles']:
 with open('parsed_data.json', 'w') as json_file:
     json.dump(parsed_data, json_file, indent=4)
 
-def invert_y(y, max_y):
-    return max_y - y
+def invert_y(y, height):
+    return height - y
+
 def invert_arc_coordinates(arc, max_y):
     """
     Inverts the Y-coordinates for arcs specifically, and recalculates start and end points
@@ -412,134 +458,107 @@ def save_to_mongodb(dxf_filename, svg_filename):
         logging.error(f"Error saving files to MongoDB: {e}")
 
 def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
-    # Load parsed data from JSON
     try:
         with open(input_json, "r") as infile:
-            data = json.load(infile)  # Load JSON file content into data
+            data = json.load(infile)
     except FileNotFoundError:
         raise ValueError(f"Input JSON file {input_json} not found")
     except json.JSONDecodeError:
         raise ValueError("Error decoding the JSON file. Check the file format.")
 
-    # Define the viewBox
     width = max_x - min_x
     height = max_y - min_y
 
-    # Create SVG root element with a viewBox attribute
     svg = Element('svg', xmlns="http://www.w3.org/2000/svg", version="1.1")
     svg.set("width", "850")
     svg.set("height", "850")
-    svg.set("viewBox", f"{min_x} {invert_y(max_y, max_y)} {width} {height}")
+    svg.set("viewBox", f"0 0 {fmt(width)} {fmt(height)}")
 
 
     if "lines" in data:
-        
         for line in data["lines"]:
-            # line_element = SubElement(svg, 'line', {
-            #     "x1": str(line["start"]["x"]),
-            #     "y1": str(invert_y(line["start"]["y"], max_y)),
-            #     "x2": str(line["end"]["x"]),
-            #     "y2": str(invert_y(line["end"]["y"], max_y)),
-            #     "stroke": "black",  # Use blue to match the AutoCAD display
-            #     "stroke-width": str(line["thickness"])
-            # })
-            # Compute relative movement
             dx = line["end"]["x"] - line["start"]["x"]
             dy = invert_y(line["end"]["y"], max_y) - invert_y(line["start"]["y"], max_y)
 
-            # Convert lines into <path> with relative positioning
-            SubElement(svg, 'path', {
-                "d": f"M {line['start']['x']} {invert_y(line['start']['y'], max_y)} l {dx} {dy}",
+            path = SubElement(svg, 'path', {
+                "d": f"M {fmt(line['start']['x'])} {fmt(invert_y(line['start']['y'], max_y))} l {fmt(dx)} {fmt(dy)}",
                 "stroke": "black",
-                "stroke-width": str(line["thickness"]),
+                "stroke-width": fmt(line["thickness"]),
                 "fill": "none"
             })
 
-        # Add rotation transformation if specified
             if "rotation" in line:
-                line_element.set("transform", f"rotate({line['rotation']} {line['start']['x']} {invert_y(line['start']['y'], max_y)})")
+                path.set("transform", f"rotate({fmt(line['rotation'])} {fmt(line['start']['x'])} {fmt(invert_y(line['start']['y'], max_y))})")
+
     if "lines" in data:
         for line in data["lines"]:
-            if line.get("type") == "dimension":  # Handle dimension lines specifically
+            if line.get("type") == "dimension":
                 line_element = SubElement(svg, 'line', {
-                    "x1": str(line["start"]["x"]),
-                    "y1": str(invert_y(line["start"]["y"], max_y)),
-                    "x2": str(line["end"]["x"]),
-                    "y2": str(invert_y(line["end"]["y"], max_y)),
+                    "x1": fmt(line["start"]["x"]),
+                    "y1": fmt(invert_y(line["start"]["y"], max_y)),
+                    "x2": fmt(line["end"]["x"]),
+                    "y2": fmt(invert_y(line["end"]["y"], max_y)),
                     "stroke": "black",
-                    "stroke-width": str(line["thickness"])
+                    "stroke-width": fmt(line["thickness"])
                 })
                 if "rotation" in line:
-                    line_element.set("transform", f"rotate({line['rotation']} {line['start']['x']} {invert_y(line['start']['y'], max_y)})")
+                    line_element.set("transform", f"rotate({fmt(line['rotation'])} {fmt(line['start']['x'])} {fmt(invert_y(line['start']['y'], max_y))})")
 
-    # Add Circles
     if "circles" in data:
         for circle in data["circles"]:
             SubElement(svg, 'circle', {
-                "cx": str(circle["center"]["x"]),
-                "cy": str(invert_y(circle["center"]["y"], max_y)),
-                "r": str(circle["radius"]),
+                "cx": fmt(circle["center"]["x"]),
+                "cy": fmt(invert_y(circle["center"]["y"], max_y)),
+                "r": fmt(circle["radius"]),
                 "stroke": "black",
-                "stroke-width": str(circle["thickness"]),
+                "stroke-width": fmt(circle["thickness"]),
                 "fill": "none"
             })
 
-    # Add Arcs
     if "arcs" in data:
         for arc in data["arcs"]:
-            # path_data = invert_arc_coordinates(arc, max_y)  # Use the new inversion function
-            # SubElement(svg, 'path', {
-            #     "d": path_data,
-            #     "stroke": "black",
-            #     "stroke-width": str(arc["thickness"]),
-            #     "fill": "none"
-            # })
-            # Compute relative movement for start point
             dx = arc["start"]["x"] - arc["center"]["x"]
             dy = invert_y(arc["start"]["y"], max_y) - invert_y(arc["center"]["y"], max_y)
-
-            # Compute relative movement for arc endpoint
             dx_end = arc["end"]["x"] - arc["start"]["x"]
             dy_end = invert_y(arc["end"]["y"], max_y) - invert_y(arc["start"]["y"], max_y)
 
-            # Convert arc to relative path
-            path_data = f"m {dx},{dy} a {arc['radius']},{arc['radius']} 0 0,1 {dx_end},{dy_end}"
+            path_data = f"m {fmt(dx)},{fmt(dy)} a {fmt(arc['radius'])},{fmt(arc['radius'])} 0 0,1 {fmt(dx_end)},{fmt(dy_end)}"
             SubElement(svg, 'path', {
                 "d": path_data,
                 "stroke": "black",
-                "stroke-width": str(arc["thickness"]),
+                "stroke-width": fmt(arc["thickness"]),
                 "fill": "none"
             })
 
-    # Add Texts
-    # Add Texts
     if "texts" in data:
         for text in data["texts"]:
             text_content = text["content"]
-
-        # Handle AutoCAD text formatting codes like %%u (underline)
             if "%%u" in text_content:
-                text_content = text_content.replace("%%u", "")  # Remove or process underline formatting
-
-        # Create SVG text element
+                text_content = text_content.replace("%%u", "")
             SubElement(svg, 'text', {
-                "x": str(text["position"]["x"]),
-                "y": str(invert_y(text["position"]["y"], max_y)),
-                "font-size": str(text["height"]),
+                "x": fmt(text["position"]["x"]),
+                "y": fmt(invert_y(text["position"]["y"], max_y)),
+                "font-size": fmt(text["height"]),
                 "fill": "black",
-                "transform": f"rotate({text['rotation']} {text['position']['x']} {invert_y(text['position']['y'], max_y)})"
+                "transform": f"rotate({fmt(text['rotation'])} {fmt(text['position']['x'])} {fmt(invert_y(text['position']['y'], max_y))})"
             }).text = text_content
 
     if "texts" in data:
         for text in data["texts"]:
-            if text.get("type") == "dimension_label":  # Handle dimension labels specifically
+            if text.get("type") == "dimension_label":
                 SubElement(svg, 'text', {
-                    "x": str(text["position"]["x"]),
-                    "y": str(invert_y(text["position"]["y"], max_y)),
-                    "font-size": str(text["height"]),
+                    "x": fmt(text["position"]["x"]),
+                    "y": fmt(invert_y(text["position"]["y"], max_y)),
+                    "font-size": fmt(text["height"]),
                     "fill": "black",
-                    "transform": f"rotate({text['rotation']} {text['position']['x']} {invert_y(text['position']['y'], max_y)})"
+                    "transform": f"rotate({fmt(text['rotation'])} {fmt(text['position']['x'])} {fmt(invert_y(text['position']['y'], max_y))})"
                 }).text = text["content"]
+
+    svg_str = ET.tostring(svg, encoding='unicode')
+    with open(output_svg, 'w') as file:
+        file.write(xml.dom.minidom.parseString(tostring(svg)).toprettyxml())
+
+    save_to_mongodb(input_json.replace(".json", ".dxf"), output_svg)
 
 
     svg_str = ET.tostring(svg, encoding='unicode')
