@@ -9,6 +9,9 @@ import xml.etree.ElementTree as ET
 import os
 from datetime import datetime
 from pymongo import MongoClient
+import numpy as np
+
+from templates.util import return_thickness
 # Set up logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -32,7 +35,8 @@ parsed_data = {
     "lines": [],
     "circles": [],
     "arcs": [],
-    "texts": []
+    "texts": [],
+     "polylines": []
 }
 def convert_to_relative_path(absolute_path):
     """
@@ -96,7 +100,8 @@ def handle_entity(entity, parsed_data):
         parsed_data["lines"].append({
             "start": {"x": x_start, "y": y_start},
             "end": {"x": x_end, "y": y_end},
-            "thickness": thickness
+             "thickness": thickness
+            
         })
     elif entity_type == 'DIMENSION':
         dim_type = entity.dxf.dimtype
@@ -106,12 +111,14 @@ def handle_entity(entity, parsed_data):
             dim_line_start = {"x": defpoint1.x, "y": defpoint1.y}
             dim_line_end = {"x": defpoint2.x, "y": defpoint2.y}
             thickness = entity.dxf.lineweight / 100 if entity.dxf.hasattr('lineweight') else 1
+            
 
             # Add dimension line to parsed data
             parsed_data["lines"].append({
                 "start": dim_line_start,
                 "end": dim_line_end,
                 "thickness": thickness,
+                
                 "type": "dimension",
                 "rotation": entity.dxf.rotation if entity.dxf.hasattr("rotation") else 0
             })
@@ -136,6 +143,7 @@ def handle_entity(entity, parsed_data):
             "center": {"x": x_center, "y": y_center},
             "radius": radius,
             "thickness": thickness
+            
         })
     elif entity_type == 'ARC':
         x_center, y_center = entity.dxf.center.x, entity.dxf.center.y
@@ -143,6 +151,7 @@ def handle_entity(entity, parsed_data):
         start_angle = entity.dxf.start_angle
         end_angle = entity.dxf.end_angle
         thickness = entity.dxf.lineweight / 100 if entity.dxf.hasattr('lineweight') else 1
+       
 
         start_x = x_center + radius * cos(radians(start_angle))
         start_y = y_center + radius * sin(radians(start_angle))
@@ -157,6 +166,7 @@ def handle_entity(entity, parsed_data):
             "start_angle": start_angle,
             "end_angle": end_angle,
             "thickness": thickness
+            
         })
     
     elif entity_type in ['TEXT', 'MTEXT']:
@@ -170,6 +180,53 @@ def handle_entity(entity, parsed_data):
             "height": height,
             "rotation": rotation
         })
+    elif entity_type in ['LWPOLYLINE', 'POLYLINE']:
+        points = []
+        thickness = entity.dxf.lineweight / 100 if entity.dxf.hasattr('lineweight') else 1
+
+        try:
+            # Get vertices based on polyline type
+            if entity_type == 'LWPOLYLINE':
+                # Handle LWPOLYLINE vertices (usually stored as tuples)
+                for vertex in entity:
+                    if hasattr(vertex, 'dxf'):  # Proper vertex object
+                        points.append((vertex.dxf.x, vertex.dxf.y))
+                    else:  # Tuple format
+                        points.append((float(vertex[0]), float(vertex[1])))
+            
+            elif entity_type == 'POLYLINE':
+                # Handle POLYLINE vertices
+                for vertex in entity.vertices:
+                    if hasattr(vertex, 'dxf'):  # Proper vertex object
+                        points.append((vertex.dxf.location.x, vertex.dxf.location.y))
+                    else:  # Tuple format
+                        points.append((float(vertex[0]), float(vertex[1])))
+
+            # Add to parsed data
+            parsed_data["polylines"].append({
+                "points": points,
+                "thickness": thickness,
+                "closed": entity.is_closed
+            })
+
+        except Exception as e:
+            logging.error(f"Error processing polyline vertices: {e}")
+            # Fallback approach for problematic polylines
+            try:
+                points = []
+                if entity_type == 'LWPOLYLINE':
+                    points = [(float(v[0]), float(v[1])) for v in entity.vertices()]
+                elif entity_type == 'POLYLINE':
+                    points = [(float(v[0]), float(v[1])) for v in entity.points()]
+
+                parsed_data["polylines"].append({
+                    "points": points,
+                    "thickness": thickness,
+                    "closed": entity.is_closed
+                })
+            except Exception as fallback_error:
+                logging.error(f"Fallback polyline processing failed: {fallback_error}")
+                raise ValueError(f"Could not process polyline vertices: {fallback_error}")
     else:
         logging.warning(f"Skipping unsupported entity type: {entity_type}")
 
@@ -237,7 +294,8 @@ def parse_dxf(filename, scaling_factor=1.0):
         "lines": [],
         "circles": [],
         "arcs": [],
-        "texts": []
+        "texts": [],
+        "polylines": []
     }
     try:
         doc = ezdxf.readfile(filename)
@@ -275,7 +333,24 @@ def parse_dxf(filename, scaling_factor=1.0):
         elif entity.dxftype() in ['CIRCLE', 'ARC']:
             all_x_coords.append(entity.dxf.center.x)
             all_y_coords.append(entity.dxf.center.y)
-
+        elif entity.dxftype() in ['LWPOLYLINE', 'POLYLINE']:
+            points = []
+            if entity.dxftype() == 'LWPOLYLINE':
+                for vertex in entity:
+                    if hasattr(vertex, 'dxf'):
+                        points.append((vertex.dxf.x, vertex.dxf.y))
+                    else:
+                        points.append((vertex[0], vertex[1]))
+            else:  # POLYLINE
+                for vertex in entity.vertices:
+                    if hasattr(vertex, 'dxf'):
+                        points.append((vertex.dxf.location.x, vertex.dxf.location.y))
+                    else:
+                        points.append((vertex[0], vertex[1]))
+            
+            for x, y in points:
+                all_x_coords.append(x)
+                all_y_coords.append(y)
     # Check if no valid geometry was parsed
     if not all_x_coords or not all_y_coords:
         raise ValueError("No valid geometry found in the DXF file. The file might be empty or corrupted.")
@@ -457,7 +532,7 @@ def save_to_mongodb(dxf_filename, svg_filename):
     except Exception as e:
         logging.error(f"Error saving files to MongoDB: {e}")
 
-def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
+def convert_to_svg(filename, input_json, output_svg, min_x, max_x, min_y, max_y):
     try:
         with open(input_json, "r") as infile:
             data = json.load(infile)
@@ -465,14 +540,17 @@ def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
         raise ValueError(f"Input JSON file {input_json} not found")
     except json.JSONDecodeError:
         raise ValueError("Error decoding the JSON file. Check the file format.")
+    print(filename)
 
     width = max_x - min_x
     height = max_y - min_y
 
+    padding = 10  # Add padding to prevent cropping
+
     svg = Element('svg', xmlns="http://www.w3.org/2000/svg", version="1.1")
-    svg.set("width", "850")
-    svg.set("height", "850")
-    svg.set("viewBox", f"0 0 {fmt(width)} {fmt(height)}")
+    svg.set("width", "100%")
+    svg.set("height", "100%")
+    svg.set("viewBox", f"{-padding} {-padding} {fmt(width + 2*padding)} {fmt(height + 2*padding)}")
 
 
     if "lines" in data:
@@ -480,10 +558,14 @@ def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
             dx = line["end"]["x"] - line["start"]["x"]
             dy = invert_y(line["end"]["y"], max_y) - invert_y(line["start"]["y"], max_y)
 
+            stroke = return_thickness(filename)
+            if stroke == -1:
+                stroke = line["thickness"]
+
             path = SubElement(svg, 'path', {
                 "d": f"M {fmt(line['start']['x'])} {fmt(invert_y(line['start']['y'], max_y))} l {fmt(dx)} {fmt(dy)}",
                 "stroke": "black",
-                "stroke-width": fmt(line["thickness"]),
+                "stroke-width": fmt(stroke),
                 "fill": "none"
             })
 
@@ -493,25 +575,31 @@ def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
     if "lines" in data:
         for line in data["lines"]:
             if line.get("type") == "dimension":
+                stroke = return_thickness(filename)
+                if stroke == -1:
+                    stroke = line["thickness"]
                 line_element = SubElement(svg, 'line', {
                     "x1": fmt(line["start"]["x"]),
                     "y1": fmt(invert_y(line["start"]["y"], max_y)),
                     "x2": fmt(line["end"]["x"]),
                     "y2": fmt(invert_y(line["end"]["y"], max_y)),
                     "stroke": "black",
-                    "stroke-width": fmt(line["thickness"])
+                    "stroke-width": fmt(stroke),
                 })
                 if "rotation" in line:
                     line_element.set("transform", f"rotate({fmt(line['rotation'])} {fmt(line['start']['x'])} {fmt(invert_y(line['start']['y'], max_y))})")
 
     if "circles" in data:
         for circle in data["circles"]:
+            stroke = return_thickness(filename)
+            if stroke == -1:
+                stroke = circle["thickness"]
             SubElement(svg, 'circle', {
                 "cx": fmt(circle["center"]["x"]),
                 "cy": fmt(invert_y(circle["center"]["y"], max_y)),
                 "r": fmt(circle["radius"]),
                 "stroke": "black",
-                "stroke-width": fmt(circle["thickness"]),
+                "stroke-width": fmt(stroke),
                 "fill": "none"
             })
 
@@ -521,12 +609,15 @@ def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
             dy = invert_y(arc["start"]["y"], max_y) - invert_y(arc["center"]["y"], max_y)
             dx_end = arc["end"]["x"] - arc["start"]["x"]
             dy_end = invert_y(arc["end"]["y"], max_y) - invert_y(arc["start"]["y"], max_y)
+            stroke = return_thickness(filename)
+            if stroke == -1:
+                stroke = arc["thickness"]
 
             path_data = f"m {fmt(dx)},{fmt(dy)} a {fmt(arc['radius'])},{fmt(arc['radius'])} 0 0,1 {fmt(dx_end)},{fmt(dy_end)}"
             SubElement(svg, 'path', {
                 "d": path_data,
                 "stroke": "black",
-                "stroke-width": fmt(arc["thickness"]),
+                "stroke-width": fmt(stroke),
                 "fill": "none"
             })
 
@@ -553,6 +644,23 @@ def convert_to_svg(input_json, output_svg, min_x, max_x, min_y, max_y):
                     "fill": "black",
                     "transform": f"rotate({fmt(text['rotation'])} {fmt(text['position']['x'])} {fmt(invert_y(text['position']['y'], max_y))})"
                 }).text = text["content"]
+    if "polylines" in data:
+        for polyline in data["polylines"]:
+            points = polyline["points"]
+            path_data = "M " + " L ".join([f"{fmt(x)},{fmt(invert_y(y, max_y))}" for x, y in points])
+            
+            # Close the path if the polyline is closed
+            if polyline.get("closed", False):
+                path_data += " Z"
+            stroke = return_thickness(filename)
+            if stroke == -1:
+                stroke = polyline["thickness"]
+            SubElement(svg, 'path', {
+                "d": path_data,
+                "stroke": "black",
+                "stroke-width": fmt(stroke),
+                "fill": "none"
+            })
 
     svg_str = ET.tostring(svg, encoding='unicode')
     with open(output_svg, 'w') as file:

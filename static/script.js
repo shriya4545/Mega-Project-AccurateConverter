@@ -1,80 +1,3 @@
-// document.addEventListener('DOMContentLoaded', () => {
-//     const uploadArea = document.getElementById('uploadArea');
-//     const fileInput = document.getElementById('fileInput');
-//     const uploadButton = document.getElementById('uploadButton');
-//     const preview = document.getElementById('preview');
-
-//     uploadButton.addEventListener('click', (event) => {
-//         event.preventDefault(); // Prevent default action
-//         fileInput.click(); // Trigger file input click
-//     });
-
-//     fileInput.addEventListener('change', (e) => {
-//         const file = e.target.files[0];
-//         handleFile(file);
-//     });
-
-//     function handleFile(file) {
-//         if (file && file.name.endsWith('.dxf') && file.size < 10 * 1024 * 1024) { // Example size limit: 5MB
-//             const formData = new FormData();
-//             formData.append('file', file);
-
-//             // Clear previous SVG preview
-//             preview.innerHTML = '';
-
-//             // Show loading message
-//             const loadingMessage = document.createElement('p');
-//             loadingMessage.textContent = 'Uploading...';
-//             preview.appendChild(loadingMessage);
-
-//             // Make AJAX request to upload the DXF file
-//             fetch('/upload', {
-//                 method: 'POST',
-//                 body: formData
-//             })
-//             .then(response => {
-//                 // Check content type first
-//                 const contentType = response.headers.get('content-type');
-//                 if (contentType && contentType.includes('application/json')) {
-//                     if (!response.ok) {
-//                         return response.json().then(err => {
-//                             throw new Error(err.error || 'Unknown error occurred');
-//                         });
-//                     }
-//                     return response.json();
-//                 }
-//                 throw new Error('Server returned invalid response format');
-//             })
-//             .then(data => {
-//                 // Remove loading message
-//                 loadingMessage.remove();
-
-//                 if (data.svg) {
-//                     preview.innerHTML = data.svg; // Display SVG in preview area
-//                 } else {
-//                     alert('Error: ' + data.error);
-//                     console.error('Error from server:', data.error);
-//                 }
-//             })
-//             .catch(error => {
-//                 // Remove loading message
-//                 loadingMessage.remove();
-
-//                 console.error('Error uploading file:', error); // Log detailed error
-//                 if (error instanceof TypeError && error.message === 'Failed to fetch') {
-//                     alert('Network error: Could not reach the server.');
-//                 } else {
-//                     alert(`Error: ${error.message}`);
-//                 }
-//             });
-//         } else {
-//             alert('Please upload a valid DXF file (max 10MB).');
-//         }
-//     }
-// });
-
-
-
 document.addEventListener('DOMContentLoaded', () => {
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -97,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function handleFile(file) {
-        if (file && file.name.endsWith('.dxf') && file.size < 10 * 1024 * 1024) {
+        if (file && file.name.endsWith('.dxf') && file.size < 64 * 1024 * 1024) {
             const formData = new FormData();
             formData.append('file', file);
 
@@ -127,18 +50,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.svg && data.filename) {
                     preview.innerHTML = data.svg;
                     preview.setAttribute('data-filename', data.filename);
+                    // Reset file input to allow re-uploading the same file if needed
+                    fileInput.value = '';
+                    // Ensure upload button is visible and enabled
+                    uploadButton.style.display = 'inline-block';
+                    uploadButton.disabled = false;
                 } else {
                     alert('Error: ' + data.error);
                     console.error('Error from server:', data.error);
+                    // Reset file input and upload button on error
+                    fileInput.value = '';
+                    uploadButton.style.display = 'inline-block';
+                    uploadButton.disabled = false;
                 }
             })
             .catch(error => {
                 loadingMessage.remove();
                 console.error('Error uploading file:', error);
                 alert(`Error: ${error.message}`);
+                // Reset file input and upload button on error
+                fileInput.value = '';
+                uploadButton.style.display = 'inline-block';
+                uploadButton.disabled = false;
             });
         } else {
-            alert('Please upload a valid DXF file (max 10MB).');
+            alert('Please upload a valid DXF file (max 64MB).');
         }
     }
 

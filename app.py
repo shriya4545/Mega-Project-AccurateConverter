@@ -15,7 +15,7 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024   # 64 MB
 
 parsed_data_file = 'parsed_data.json'
 if os.path.exists(parsed_data_file):
@@ -58,8 +58,8 @@ def upload_file():
         svg_filename = f"output_{os.path.splitext(file.filename)[0]}.svg"
         svg_output = os.path.join(app.config['UPLOAD_FOLDER'], svg_filename)
         
-        convert_to_svg(parsed_data_file, svg_output, min_x, max_x, min_y, max_y)
-        save_to_mongodb(file_path, svg_output)
+        convert_to_svg(file.filename, parsed_data_file, svg_output, min_x, max_x, min_y, max_y)
+        # save_to_mongodb(file_path, svg_output)
         
         with open(svg_output, 'r') as svg_file:
             svg_content = svg_file.read()

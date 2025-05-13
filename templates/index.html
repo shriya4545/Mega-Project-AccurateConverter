@@ -21,7 +21,6 @@
 </html> -->
 
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,6 +28,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload DXF File</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Make preview area fill the window */
+        #preview {
+            width: 100vw;
+            height: 100vh;
+            overflow: auto;
+            border: 1px solid #ccc;
+        }
+        /* Optional: remove margin and padding from body and html */
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+        .container {
+            max-width: 100%;
+            padding: 10px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -55,7 +73,5 @@
     </div>
     
      
-    
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
-</html>
